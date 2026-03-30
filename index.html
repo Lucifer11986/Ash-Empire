@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ash & Empire</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.babylonjs.com/babylon.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js" crossorigin="anonymous"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700;900&display=swap');
+        
+        html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background-color: #05050A; font-family: 'Rajdhani', sans-serif; color: #f8fafc; user-select: none; }
+        #renderCanvas { width: 100%; height: 100%; touch-action: none; outline: none; display: block; }
+        
+        .glass-panel { background: linear-gradient(135deg, rgba(15, 15, 25, 0.95), rgba(5, 5, 10, 0.98)); backdrop-filter: blur(20px); border: 1px solid rgba(168, 85, 247, 0.4); box-shadow: 0 0 30px rgba(0, 0, 0, 0.9), inset 0 0 15px rgba(168, 85, 247, 0.1); }
+        .neon-text-purple { color: #d8b4fe; text-shadow: 0 0 10px #a855f7, 0 0 20px #9333ea; }
+        .neon-text-cyan { color: #67e8f9; text-shadow: 0 0 10px #22d3ee, 0 0 20px #0891b2; }
+        .neon-text-red { color: #fca5a5; text-shadow: 0 0 10px #ef4444, 0 0 20px #dc2626; }
+        .neon-text-gold { color: #fde047; text-shadow: 0 0 10px #eab308, 0 0 20px #ca8a04; }
+        
+        .btn-build { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); border: 1px solid rgba(100, 116, 139, 0.3); background: rgba(30, 41, 59, 0.4); position: relative; overflow: hidden; flex-shrink: 0; min-width: 72px; min-height: 80px; }
+        .btn-build::before { content: ''; position: absolute; top: 0; left: -100%; width: 50%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent); transition: left 0.5s; }
+        .btn-build:hover:not(:disabled) { border-color: #22d3ee; background: rgba(34, 211, 238, 0.1); box-shadow: 0 0 15px rgba(34, 211, 238, 0.3); transform: translateY(-3px); }
+        .btn-build.active { border-color: #a855f7; background: rgba(168, 85, 247, 0.2); box-shadow: 0 0 20px rgba(168, 85, 247, 0.5); transform: translateY(-3px); }
+        .btn-build:disabled { opacity: 0.3; cursor: not-allowed; filter: grayscale(100%); }
+
+        .brand-logo { font-weight: 900; font-style: italic; text-transform: uppercase; letter-spacing: 0.1em; background: linear-gradient(to right, #c084fc, #22d3ee); -webkit-background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(0 0 8px rgba(168, 85, 247, 0.6)); }
+
+        #start-screen { position: absolute; inset: 0; z-index: 50; background: radial-gradient(circle at center, #1e1b4b 0%, #05050A 100%); display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        #pause-overlay { position: absolute; inset: 0; background: rgba(5, 5, 10, 0.8); backdrop-filter: grayscale(80%) blur(4px); display: none; align-items: center; justify-content: center; z-index: 40; pointer-events: none; }
+        .alert-pulse { animation: pulseRed 1s infinite; }
+        @keyframes pulseRed { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+        @keyframes notifIn  { from { opacity:0; transform: translateY(-10px); } to { opacity:1; transform: translateY(0); } }
+        @keyframes notifOut { from { opacity:1; transform: translateY(0); } to { opacity:0; transform: translateY(-10px); } }
+        .notif { animation: notifIn 0.3s ease forwards; font-family: 'Rajdhani', sans-serif; }
+        .notif.hide { animation: notifOut 0.4s ease forwards; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(15, 15, 25, 0.9); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: #a855f7; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #22d3ee; }
+        
+        .tab-btn { padding: 0.5rem 1rem; color: #94a3b8; font-weight: bold; text-transform: uppercase; border-bottom: 2px solid transparent; cursor: pointer; }
+        .tab-btn.active { color: #22d3ee; border-bottom-color: #22d3ee; }
+
+        .build-tab { cursor: pointer; padding: 0.2rem 0.6rem; border-radius: 1rem; }
+        .build-tab.active { background: rgba(34, 211, 238, 0.1); color: #22d3ee; text-shadow: 0 0 10px rgba(34,211,238,0.5); }
+        
+        #minimapCanvas { cursor: crosshair; }
+        
+        .compact-res { display: flex; align-items: center; justify-content: space-between; background: rgba(0,0,0,0.3); padding: 2px 4px; border-radius: 4px; border: 1px solid rgba(148, 163, 184, 0.1); font-size: 10px;}
+        .compact-res span { margin-left: 4px; }
+    </style>
+</head>
+<body>
+
+    <div id="start-screen">
+        <h1 class="text-7xl font-black italic tracking-tighter brand-logo mb-2">Ash & Empire</h1>
+        <p class="text-cyan-400 font-bold uppercase tracking-[0.4em] text-xl neon-text-cyan mb-12">Alpha Version</p>
+        <button onclick="window.Sfx.click(); window.Game.start()" id="btn-start-stream" class="w-72 py-4 glass-panel rounded-xl text-xl font-black uppercase tracking-[0.2em] hover:border-cyan-400 hover:shadow-[0_0_30px_rgba(34,211,238,0.5)] transition-all text-white cursor-pointer mb-4">
+            SPIEL STARTEN
+        </button>
+        <button onclick="window.Sfx.click(); window.Game.openSettings()" id="btn-open-settings" class="w-72 py-3 bg-slate-800/80 rounded-xl text-md font-bold uppercase tracking-widest hover:bg-slate-700 transition-all text-slate-300 cursor-pointer border border-slate-600">
+            ⚙️ EINSTELLUNGEN
+        </button>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="absolute inset-0 z-[60] bg-black/90 flex flex-col items-center justify-center hidden pointer-events-auto">
+        <div class="glass-panel p-6 rounded-2xl w-[500px] flex flex-col gap-4 max-h-[90vh] overflow-y-auto">
+            <h2 id="ui-settings-title" class="text-3xl font-black neon-text-cyan text-center tracking-widest uppercase mb-2">Einstellungen & Cloud</h2>
+            
+            <div class="flex border-b border-slate-700 mb-2 overflow-x-auto whitespace-nowrap">
+                <button class="tab-btn active" onclick="window.Game.switchTab('general')">Allgemein</button>
+                <button class="tab-btn" onclick="window.Game.switchTab('cloud')">Cloud Save</button>
+                <button class="tab-btn" onclick="window.Game.switchTab('mod')">Mods</button>
+                <button class="tab-btn" onclick="window.Game.switchTab('feedback')">Feedback</button>
+                <button class="tab-btn" onclick="window.Game.switchTab('research')">🔬 Forschung</button>
+            </div>
+
+            <div id="tab-general" class="flex flex-col gap-4">
+                <div class="bg-slate-900/50 p-3 rounded border border-purple-500/30">
+                    <h3 class="text-purple-400 font-bold uppercase text-xs mb-2">Audio</h3>
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="text-sm font-bold text-slate-300">Sound aktivieren</label>
+                        <input type="checkbox" id="chk-sound" checked class="w-5 h-5 accent-purple-500 cursor-pointer" onchange="window.Sfx.toggleSound(this.checked)">
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <label class="text-sm font-bold text-slate-300">Lautstärke</label>
+                        <input type="range" id="rng-volume" min="0" max="1" step="0.1" value="0.5" class="w-1/2 accent-cyan-400 cursor-pointer" onchange="window.Sfx.setVolume(this.value)">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="text-sm font-bold text-slate-400 uppercase mb-1 block">Tageslänge</label>
+                    <select id="sel-time" class="w-full bg-slate-900 border border-purple-500 rounded p-2 text-white font-bold outline-none cursor-pointer" onchange="window.Sfx.click(); window.Game.updateSettings()">
+                        <option value="1">Normal</option>
+                        <option value="3">Schnell</option>
+                        <option value="0.3">Sehr Langsam</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="bg-red-950/50 p-3 rounded border border-red-500/40 mt-2">
+                <h3 class="text-red-400 font-bold uppercase text-xs mb-2">⚠️ Spiel Neustarten</h3>
+                <p class="text-[10px] text-slate-400 mb-3">Setzt alles zurück. Alle Fortschritte gehen verloren!</p>
+                <button onclick="window.Sfx.click(); window.Game.restartGame()" class="w-full py-2 bg-red-700/80 hover:bg-red-600 rounded font-bold uppercase tracking-wider border border-red-500 transition-colors text-white cursor-pointer">
+                    🔄 Neustart
+                </button>
+            </div>
+
+            <div id="tab-cloud" class="flex flex-col gap-4 hidden">
+                <div class="bg-slate-900/50 p-4 rounded text-sm text-slate-300 border border-cyan-500/30">
+                    Speichere dein Imperium sicher in der Cloud (Firebase Firestore).
+                </div>
+                <div id="cloud-status" class="text-xs text-orange-400 font-bold uppercase text-center">Cloud Status: Verbinde...</div>
+                <div class="flex gap-2 mt-2">
+                    <button onclick="window.Game.saveGameCloud()" class="flex-1 py-3 bg-green-700/80 hover:bg-green-600 rounded font-bold uppercase tracking-wider border border-green-500 transition-colors">☁️ Speichern</button>
+                    <button onclick="window.Game.loadGameCloud()" class="flex-1 py-3 bg-blue-700/80 hover:bg-blue-600 rounded font-bold uppercase tracking-wider border border-blue-500 transition-colors">☁️ Laden</button>
+                </div>
+            </div>
+
+            <div id="tab-mod" class="flex flex-col gap-2 hidden">
+                <label class="text-sm font-bold text-slate-400 uppercase">Mod-Code (JSON)</label>
+                <textarea id="mod-input" rows="4" class="w-full bg-slate-900 border border-purple-500 rounded p-2 text-green-400 font-mono text-xs outline-none" placeholder='{"resources": {"gold": 9999, "tools": 1000}}'></textarea>
+                <button onclick="window.Game.applyMod()" class="w-full py-2 bg-purple-700 hover:bg-purple-600 rounded font-bold uppercase tracking-wider transition-colors mt-2">Mod Anwenden</button>
+            </div>
+
+            <div id="tab-feedback" class="flex flex-col gap-3 hidden">
+                <h3 class="text-cyan-400 font-bold uppercase text-xs">Sende Feedback an Lucifer11986</h3>
+                <p class="text-[10px] text-slate-300">Bug gefunden oder eine geile Idee fürs Lategame? Lass es mich wissen!</p>
+                <textarea id="feedback-text" rows="5" class="w-full bg-slate-900 border border-cyan-500 rounded p-2 text-white font-bold text-xs outline-none" placeholder="Dein Feedback..."></textarea>
+                <button onclick="window.Game.sendFeedback()" class="w-full py-2 bg-cyan-700 hover:bg-cyan-600 rounded font-bold uppercase tracking-wider transition-colors mt-1">Senden</button>
+            </div>
+            <div id="tab-research" class="flex flex-col gap-3 hidden">
+                <div class="text-[10px] text-slate-400 font-bold uppercase tracking-widest text-center">Gold investieren um permanente Boni zu erhalten</div>
+
+                <!-- Stufe 1 -->
+                <div class="text-[9px] text-purple-400 font-bold uppercase tracking-widest border-b border-purple-500/30 pb-1">Stufe 1 — Grundlagen</div>
+                <div class="grid grid-cols-1 gap-2">
+                    <button id="res-betterTools" onclick="window.Game.research('betterTools')" class="flex justify-between items-center bg-slate-900/60 border border-slate-600 rounded-lg px-3 py-2 hover:border-cyan-500 transition-colors cursor-pointer text-left">
+                        <div><div class="text-sm font-bold text-white">⛏️ Bessere Werkzeuge</div><div class="text-[10px] text-slate-400">Alle Arbeiter +20% Geschwindigkeit</div></div>
+                        <div class="text-[10px] font-bold text-yellow-400 whitespace-nowrap ml-2">100G</div>
+                    </button>
+                    <button id="res-farming" onclick="window.Game.research('farming')" class="flex justify-between items-center bg-slate-900/60 border border-slate-600 rounded-lg px-3 py-2 hover:border-cyan-500 transition-colors cursor-pointer text-left">
+                        <div><div class="text-sm font-bold text-white">🌾 Ackerbau</div><div class="text-[10px] text-slate-400">Ernte +50% mehr Output</div></div>
+                        <div class="text-[10px] font-bold text-yellow-400 whitespace-nowrap ml-2">80G 50H</div>
+                    </button>
+                    <button id="res-cityPlanning" onclick="window.Game.research('cityPlanning')" class="flex justify-between items-center bg-slate-900/60 border border-slate-600 rounded-lg px-3 py-2 hover:border-cyan-500 transition-colors cursor-pointer text-left">
+                        <div><div class="text-sm font-bold text-white">🏠 Stadtplanung</div><div class="text-[10px] text-slate-400">Jedes Haus +2 Bevölkerung</div></div>
+                        <div class="text-[10px] font-bold text-yellow-400 whitespace-nowrap ml-2">100G 50S</div>
+                    </button>
+                </div>
+
+                <!-- Stufe 2 -->
+                <div class="text-[9px] text-purple-400 font-bold uppercase tracking-widest border-b border-purple-500/30 pb-1 mt-1">Stufe 2 — Fortschritt</div>
+                <div class="grid grid-cols-1 gap-2">
+                    <button id="res-smelting" onclick="window.Game.research('smelting')" class="flex justify-between items-center bg-slate-900/60 border border-slate-600 rounded-lg px-3 py-2 hover:border-cyan-500 transition-colors cursor-pointer text-left">
+                        <div><div class="text-sm font-bold text-white">🔥 Schmelzkunst</div><div class="text-[10px] text-slate-400">Schmelze & Ziegelei 2x schneller</div></div>
+                        <div class="text-[10px] font-bold text-yellow-400 whitespace-nowrap ml-2">150G 30Ei</div>
+                    </button>
+                    <button id="res-armor" onclick="window.Game.research('armor')" class="flex justify-between items-center bg-slate-900/60 border border-slate-600 rounded-lg px-3 py-2 hover:border-cyan-500 transition-colors cursor-pointer text-left">
+                        <div><div class="text-sm font-bold text-white">🛡️ Rüstung</div><div class="text-[10px] text-slate-400">Wachen überleben 2x mehr Treffer</div></div>
+                        <div class="text-[10px] font-bold text-yellow-400 whitespace-nowrap ml-2">150G 50Ei</div>
+                    </button>
+                    <button id="res-forestry" onclick="window.Game.research('forestry')" class="flex justify-between items-center bg-slate-900/60 border border-slate-600 rounded-lg px-3 py-2 hover:border-cyan-500 transition-colors cursor-pointer text-left">
+                        <div><div class="text-sm font-bold text-white">🌲 Forstwirtschaft</div><div class="text-[10px] text-slate-400">Bäume wachsen 2x schneller</div></div>
+                        <div class="text-[10px] font-bold text-yellow-400 whitespace-nowrap ml-2">120G 40H</div>
+                    </button>
+                </div>
+
+                <!-- Stufe 3 -->
+                <div class="text-[9px] text-purple-400 font-bold uppercase tracking-widest border-b border-purple-500/30 pb-1 mt-1">Stufe 3 — Meisterschaft</div>
+                <div class="grid grid-cols-1 gap-2">
+                    <button id="res-warfare" onclick="window.Game.research('warfare')" class="flex justify-between items-center bg-slate-900/60 border border-slate-600 rounded-lg px-3 py-2 hover:border-cyan-500 transition-colors cursor-pointer text-left">
+                        <div><div class="text-sm font-bold text-white">⚔️ Kriegskunst</div><div class="text-[10px] text-slate-400">Feind-Wellen kommen 50% seltener</div></div>
+                        <div class="text-[10px] font-bold text-yellow-400 whitespace-nowrap ml-2">300G 100Ei</div>
+                    </button>
+                    <button id="res-fortification" onclick="window.Game.research('fortification')" class="flex justify-between items-center bg-slate-900/60 border border-slate-600 rounded-lg px-3 py-2 hover:border-cyan-500 transition-colors cursor-pointer text-left">
+                        <div><div class="text-sm font-bold text-white">🏰 Festungsbau</div><div class="text-[10px] text-slate-400">Mauern haben 3x mehr HP</div></div>
+                        <div class="text-[10px] font-bold text-yellow-400 whitespace-nowrap ml-2">250G 100Z</div>
+                    </button>
+                    <button id="res-tradeRoutes" onclick="window.Game.research('tradeRoutes')" class="flex justify-between items-center bg-slate-900/60 border border-slate-600 rounded-lg px-3 py-2 hover:border-cyan-500 transition-colors cursor-pointer text-left">
+                        <div><div class="text-sm font-bold text-white">📦 Handelsrouten</div><div class="text-[10px] text-slate-400">Markt produziert 2x Gold</div></div>
+                        <div class="text-[10px] font-bold text-yellow-400 whitespace-nowrap ml-2">300G</div>
+                    </button>
+                    <button id="res-foodStorage" onclick="window.Game.research('foodStorage')" class="flex justify-between items-center bg-slate-900/60 border border-slate-600 rounded-lg px-3 py-2 hover:border-cyan-500 transition-colors cursor-pointer text-left">
+                        <div><div class="text-sm font-bold text-white">🍞 Vorratshaltung</div><div class="text-[10px] text-slate-400">Nahrung verdirbt im Winter nicht</div></div>
+                        <div class="text-[10px] font-bold text-yellow-400 whitespace-nowrap ml-2">200G 50Z</div>
+                    </button>
+                </div>
+            </div>
+            <button onclick="window.Sfx.click(); window.Game.closeSettings()" class="w-full py-4 mt-4 bg-purple-600 hover:bg-purple-500 rounded-xl font-black uppercase tracking-widest text-white transition-colors cursor-pointer shadow-[0_0_15px_rgba(168,85,247,0.4)]">
+                SCHLIESSEN
+            </button>
+        </div>
+    </div>
+
+    <div id="game-ui" class="absolute top-0 left-0 w-full h-full pointer-events-none hidden z-10">
+        
+        <!-- Streamer Branding & Status Top Left -->
+        <div class="absolute top-4 left-4 pointer-events-none flex flex-col gap-2">
+            <div>
+                <div class="brand-logo text-2xl">Ash & empire </div>
+                <div id="weather-status" class="text-[10px] font-bold text-slate-300 uppercase tracking-widest mt-1">🌤️ Wetter: Klar</div>
+                <div class="text-[10px] font-bold text-cyan-400 uppercase tracking-widest mt-0.5" id="epoch-status">🏛️ Epoche: I</div>
+                <div class="text-[10px] font-bold uppercase tracking-widest mt-0.5" id="season-status">🌸 Jahreszeit: Frühling</div>
+                <div class="flex gap-2 mt-0.5 items-center">
+                    <div class="text-[10px] font-bold text-pink-400 uppercase tracking-widest" id="happiness-status">❤️ 100%</div>
+                    <button onclick="window.Sfx.click(); window.Game.cycleTaxes()" id="btn-tax" class="pointer-events-auto bg-slate-800 border border-slate-600 px-2 rounded text-[9px] uppercase font-bold text-yellow-500 hover:bg-slate-700 transition cursor-pointer">Steuern: Normal</button>
+                </div>
+            </div>
+
+            <!-- 3-Column Resource UI -->
+            <div class="glass-panel p-2 rounded-xl w-64 pointer-events-auto border-t-2 border-t-purple-500">
+                <h3 class="text-[9px] font-black uppercase text-purple-400 tracking-widest mb-1.5 border-b border-purple-500/30 pb-1 text-center">Lagerbestand</h3>
+                
+                <div class="grid grid-cols-3 gap-1 font-bold">
+                    <div class="compact-res" title="Holz">🪵 <span id="res-wood" class="text-cyan-400">0</span></div>
+                    <div class="compact-res" title="Stein">🪨 <span id="res-stone" class="text-cyan-400">0</span></div>
+                    <div class="compact-res" title="Lehm">🟤 <span id="res-clay" class="text-cyan-400">0</span></div>
+                    
+                    <div class="compact-res" title="Kohle">⬛ <span id="res-coal" class="text-slate-400">0</span></div>
+                    <div class="compact-res" title="Eisen">🔗 <span id="res-iron" class="text-slate-200">0</span></div>
+                    <div class="compact-res" title="Gold">💰 <span id="res-gold" class="neon-text-gold">0</span></div>
+                    
+                    <div class="compact-res" title="Bretter">🪵 <span id="res-planks" class="text-orange-200">0</span></div>
+                    <div class="compact-res" title="Ziegel">🧱 <span id="res-bricks" class="text-red-200">0</span></div>
+                    <div class="compact-res" title="Mehl">🥣 <span id="res-flour" class="text-yellow-100">0</span></div>
+                    
+                    <div class="compact-res" title="Weizen">🌾 <span id="res-wheat" class="text-yellow-400">0</span></div>
+                    <div class="compact-res" title="Fleisch">🥩 <span id="res-meat" class="text-red-400">0</span></div>
+                    <div class="compact-res" title="Fisch">🐟 <span id="res-fish" class="text-blue-300">0</span></div>
+
+                    <div class="compact-res border-t border-purple-500/50 mt-0.5 pt-1" title="Werkzeuge (Speed Buff)">🛠️ <span id="res-tools" class="text-green-300">0</span></div>
+                    <div class="compact-res border-t border-purple-500/50 mt-0.5 pt-1" title="Waffen">⚔️ <span id="res-weapons" class="text-red-300">0</span></div>
+                    <div id="res-food-container" class="compact-res border-t border-purple-500/50 mt-0.5 pt-1" title="Gesamtnahrung">🍖 <span id="res-food" class="text-green-400">200</span></div>
+                    <div class="compact-res border-t border-purple-500/50 mt-0.5 pt-1" title="Obst">🍎 <span id="res-fruits" class="text-orange-400">0</span></div>
+                    <div class="compact-res border-t border-purple-500/50 mt-0.5 pt-1" title="Gemüse">🥕 <span id="res-vegetables" class="text-green-400">0</span></div>
+                    <div class="compact-res border-t border-purple-500/50 mt-0.5 pt-1" title="Milch">🥛 <span id="res-milk" class="text-yellow-100">0</span></div>
+                    <div class="compact-res border-t border-purple-500/50 mt-0.5 pt-1" title="Wolle">🧶 <span id="res-wool" class="text-slate-200">0</span></div>
+                    <div class="compact-res border-t border-purple-500/50 mt-0.5 pt-1" title="Käse">🧀 <span id="res-cheese" class="text-yellow-300">0</span></div>
+                    <div class="compact-res col-span-3 justify-center border-t border-purple-500/50 mt-0.5 pt-1" title="Bevölkerung (Frei / Max)">
+                        <span class="text-purple-400">👥 Pop:</span> <span class="neon-text-purple ml-2"><span id="res-free">0</span> / <span id="res-pop">0</span></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls & Time Top Right -->
+        <div class="absolute top-4 right-4 flex flex-col gap-2 pointer-events-auto items-end">
+            <div class="bg-slate-900/80 p-1 rounded-lg border border-slate-700 glass-panel flex gap-1 shadow-lg">
+                <button onclick="window.Game.openSettings()" class="w-8 h-8 rounded text-sm hover:bg-slate-700 transition-colors cursor-pointer text-white flex items-center justify-center">⚙️</button>
+                <button onclick="window.Game.toggleStats()" class="w-8 h-8 rounded text-sm hover:bg-slate-700 transition-colors cursor-pointer text-white flex items-center justify-center">📊</button>
+                <div class="w-px h-6 bg-slate-600 mx-1 self-center"></div>
+                <button id="btn-speed-pause" onclick="window.Sfx.click(); window.Game.togglePause()" class="w-8 h-8 rounded text-xs font-black hover:bg-purple-600 transition-colors text-white cursor-pointer">⏸</button>
+                <button id="btn-speed-1" onclick="window.Sfx.click(); window.Game.setSpeed(1)" class="w-8 h-8 rounded text-xs font-black bg-purple-600 text-white cursor-pointer">1x</button>
+                <button id="btn-speed-2" onclick="window.Sfx.click(); window.Game.setSpeed(2)" class="w-8 h-8 rounded text-xs font-black hover:bg-purple-600 transition-colors text-white cursor-pointer">2x</button>
+                <button id="btn-speed-3" onclick="window.Sfx.click(); window.Game.setSpeed(3)" class="w-8 h-8 rounded text-xs font-black hover:bg-purple-600 transition-colors text-white cursor-pointer">3x</button>
+            </div>
+            
+            <div class="glass-panel p-2 rounded-lg flex flex-col items-center min-w-[120px] shadow-lg">
+                <span class="text-[10px] uppercase text-slate-400 font-bold mb-1 tracking-widest">Zyklus</span>
+                <span id="ui-time" class="text-xl font-black neon-text-cyan leading-none tracking-widest">TAG</span>
+                <div class="w-full h-1.5 bg-slate-800 rounded-full mt-2 overflow-hidden border border-slate-700">
+                    <div id="ui-time-bar" class="h-full bg-cyan-400 w-1/2 transition-all duration-300"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- System Alerts -->
+        <div id="enemy-alert" class="absolute top-24 left-1/2 -translate-x-1/2 bg-red-900/80 border border-red-500 px-6 py-2 rounded-lg neon-text-red font-bold uppercase tracking-widest hidden alert-pulse pointer-events-none z-50">
+            ⚠️ FEINDE GREIFEN AN! ⚠️
+        </div>
+        <div id="sys-msg" class="absolute top-36 left-1/2 -translate-x-1/2 glass-panel px-6 py-2 rounded-lg text-cyan-400 font-bold text-sm tracking-widest uppercase opacity-0 transition-opacity duration-300 z-50 pointer-events-none">
+            Message
+        </div>
+
+        <div id="notif-stack" class="absolute top-4 left-1/2 -translate-x-1/2 flex flex-col gap-2 pointer-events-none z-50 items-center"></div>
+
+        <!-- Minimap -->
+        <div class="absolute bottom-4 right-4 flex flex-col gap-1 pointer-events-auto items-end">
+            <canvas id="minimapCanvas" width="160" height="160" class="glass-panel rounded-xl border border-purple-500/50 hover:border-cyan-400 transition-colors"></canvas>
+            <div class="text-[9px] font-bold uppercase text-slate-400 bg-black/60 px-2 py-1 rounded">WASD: Bewegen • R-Klick: Abbruch</div>
+        </div>
+
+        <!-- Build Menu Bottom Center (With Tabs) -->
+        <div class="absolute bottom-4 left-1/2 -translate-x-1/2 pointer-events-auto flex flex-col items-center gap-2">
+            <button onclick="window.Sfx.click(); window.Game.toggleBuildMenu()" class="glass-panel px-6 py-2 rounded-full text-cyan-400 font-bold text-sm uppercase tracking-widest hover:bg-purple-900/50 transition-colors cursor-pointer border border-cyan-400/50 shadow-[0_0_15px_rgba(34,211,238,0.2)]">
+                🔨 Baumenü (B)
+            </button>
+            
+            <div id="build-menu-wrapper" class="flex flex-col items-center gap-2 hidden transition-all pointer-events-auto w-full max-w-[90vw]">
+                <!-- Tabs -->
+                <div class="glass-panel px-4 py-1.5 rounded-full flex gap-2 border border-purple-500/30 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                    <button onclick="window.Sfx.click(); window.Game.setBuildCategory('all')" class="build-tab active hover:text-cyan-400 transition-colors" data-cat="all">Alle</button>
+                    <button onclick="window.Sfx.click(); window.Game.setBuildCategory('infra')" class="build-tab hover:text-cyan-400 transition-colors" data-cat="infra">Basis</button>
+                    <button onclick="window.Sfx.click(); window.Game.setBuildCategory('res')" class="build-tab hover:text-cyan-400 transition-colors" data-cat="res">Ressourcen</button>
+                    <button onclick="window.Sfx.click(); window.Game.setBuildCategory('ind')" class="build-tab hover:text-cyan-400 transition-colors" data-cat="ind">Industrie</button>
+                    <button onclick="window.Sfx.click(); window.Game.setBuildCategory('adv')" class="build-tab hover:text-cyan-400 transition-colors" data-cat="adv">Lategame</button>
+                </div>
+                
+                <!-- Buttons Container -->
+                <div id="build-menu-container" class="glass-panel p-2 rounded-2xl flex gap-1.5 border-b-2 border-b-cyan-400 overflow-x-auto w-full flex-wrap justify-center">
+                    
+                    <!-- Infra -->
+                    <button id="btn-build-road" onclick="window.Sfx.click(); window.Game.setBuildMode('road')" data-cat="infra" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer" disabled>
+                        <span class="text-xl">🛣️</span><span class="text-[9px] font-bold uppercase leading-tight text-center">Straße<br><span class="text-slate-400 text-[8px]">5S</span></span>
+                    </button>
+                    <button id="btn-build-bridge" onclick="window.Sfx.click(); window.Game.setBuildMode('bridge')" data-cat="infra" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer" disabled>
+                        <span class="text-xl">🌉</span><span class="text-[9px] font-bold uppercase leading-tight text-center">Brücke<br><span class="text-slate-400 text-[8px]">20H 10S</span></span>
+                    </button>
+                    <button id="btn-build-townhall" onclick="window.Sfx.click(); window.Game.setBuildMode('townhall')" data-cat="infra" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer">
+                        <span class="text-xl">🏛️</span><span class="text-[9px] font-bold uppercase leading-tight text-purple-300 text-center">Zentrum<br><span class="text-slate-400 text-[8px]">Start</span></span>
+                    </button>
+                    <button id="btn-build-house" onclick="window.Sfx.click(); window.Game.setBuildMode('house')" data-cat="infra" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer" disabled>
+                        <span class="text-xl">🏠</span><span class="text-[9px] font-bold uppercase leading-tight text-center">Haus<br><span class="text-slate-400 text-[8px]">20B 20S</span></span>
+                    </button>
+                    <button id="btn-build-storage" onclick="window.Sfx.click(); window.Game.setBuildMode('storage')" data-cat="infra" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer" disabled>
+                        <span class="text-xl">📦</span><span class="text-[9px] font-bold uppercase leading-tight text-center">Lager<br><span class="text-slate-400 text-[8px]">50B 50S</span></span>
+                    </button>
+                    <div class="menu-separator w-px h-14 bg-slate-600/50 mx-0.5 self-center"></div>
+                    
+                    <!-- Res -->
+                    <button id="btn-build-lumbercamp" onclick="window.Sfx.click(); window.Game.setBuildMode('lumbercamp')" data-cat="res" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer" disabled>
+                        <span class="text-xl">🪓</span><span class="text-[9px] font-bold uppercase leading-tight text-center">Holz<br><span class="text-slate-400 text-[8px]">50H 10S</span></span>
+                    </button>
+                    <button id="btn-build-quarry" onclick="window.Sfx.click(); window.Game.setBuildMode('quarry')" data-cat="res" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer" disabled>
+                        <span class="text-xl">⛏️</span><span class="text-[9px] font-bold uppercase leading-tight text-center">Mine<br><span class="text-slate-400 text-[8px]">80H 20S</span></span>
+                    </button>
+                    <button id="btn-build-claypit" onclick="window.Sfx.click(); window.Game.setBuildMode('claypit')" data-cat="res" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer" disabled>
+                        <span class="text-xl">🟤</span><span class="text-[9px] font-bold uppercase leading-tight text-center">Lehm<br><span class="text-slate-400 text-[8px]">40H 10S</span></span>
+                    </button>
+                    <button id="btn-build-gatherer" onclick="window.Sfx.click(); window.Game.setBuildMode('gatherer')" data-cat="res" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer" disabled>
+                        <span class="text-xl">🧺</span><span class="text-[9px] font-bold uppercase leading-tight text-center">Beeren<br><span class="text-slate-400 text-[8px]">40H</span></span>
+                    </button>
+                    <button id="btn-build-hunter" onclick="window.Sfx.click(); window.Game.setBuildMode('hunter')" data-cat="res" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer" disabled>
+                        <span class="text-xl">🏹</span><span class="text-[9px] font-bold uppercase leading-tight text-center">Jäger<br><span class="text-slate-400 text-[8px]">50H 10S</span></span>
+                    </button>
+                    <button id="btn-build-orchard" onclick="window.Sfx.click(); window.Game.setBuildMode('orchard')" data-cat="res" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer" disabled>
+                        <span class="text-xl">🍎</span><span class="text-[9px] font-bold uppercase leading-tight text-orange-400 text-center">Obstgarten<br><span class="text-slate-400 text-[8px]">80H 20S</span></span>
+                    </button>
+                    <button id="btn-build-vegetable" onclick="window.Sfx.click(); window.Game.setBuildMode('vegetable')" data-cat="res" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer" disabled>
+                        <span class="text-xl">🥕</span><span class="text-[9px] font-bold uppercase leading-tight text-green-400 text-center">Gemüse<br><span class="text-slate-400 text-[8px]">60H 15S</span></span>
+                    </button>
+                    <button id="btn-build-cowpasture" onclick="window.Sfx.click(); window.Game.setBuildMode('cowpasture')" data-cat="res" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer" disabled>
+                        <span class="text-xl">🐄</span><span class="text-[9px] font-bold uppercase leading-tight text-yellow-200 text-center">Kühe<br><span class="text-slate-400 text-[8px]">100H 20S</span></span>
+                    </button>
+                    <button id="btn-build-sheeppasture" onclick="window.Sfx.click(); window.Game.setBuildMode('sheeppasture')" data-cat="res" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer" disabled>
+                        <span class="text-xl">🐑</span><span class="text-[9px] font-bold uppercase leading-tight text-slate-200 text-center">Schafe<br><span class="text-slate-400 text-[8px]">80H 10S</span></span>
+                    </button>
+                    <button id="btn-build-pigpen" onclick="window.Sfx.click(); window.Game.setBuildMode('pigpen')" data-cat="res" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer" disabled>
+                        <span class="text-xl">🐷</span><span class="text-[9px] font-bold uppercase leading-tight text-pink-300 text-center">Schweine<br><span class="text-slate-400 text-[8px]">80H 20S</span></span>
+                    </button>
+                    <button id="btn-build-farm" onclick="window.Sfx.click(); window.Game.setBuildMode('farm')" data-cat="res" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer" disabled>
+                        <span class="text-xl">🌾</span><span class="text-[9px] font-bold uppercase leading-tight text-center">Farm<br><span class="text-slate-400 text-[8px]">120H 30S</span></span>
+                    </button>
+                    <button id="btn-build-port" onclick="window.Sfx.click(); window.Game.setBuildMode('port')" data-cat="res" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer border-blue-500/30" disabled>
+                        <span class="text-xl">🎣</span><span class="text-[9px] font-bold uppercase leading-tight text-blue-300 text-center">Hafen<br><span class="text-slate-400 text-[8px]">80H 20B</span></span>
+                    </button>
+                    <div class="menu-separator w-px h-14 bg-slate-600/50 mx-0.5 self-center"></div>
+                    
+                    <!-- Industrie -->
+                    <button id="btn-build-sawmill" onclick="window.Sfx.click(); window.Game.setBuildMode('sawmill')" data-cat="ind" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer border-orange-500/30" disabled>
+                        <span class="text-xl">🪚</span><span class="text-[9px] font-bold uppercase leading-tight text-orange-300 text-center">Sägewerk<br><span class="text-slate-400 text-[8px]">H->B</span></span>
+                    </button>
+                    <button id="btn-build-brickyard" onclick="window.Sfx.click(); window.Game.setBuildMode('brickyard')" data-cat="ind" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer border-red-500/30" disabled>
+                        <span class="text-xl">🧱</span><span class="text-[9px] font-bold uppercase leading-tight text-red-300 text-center">Ziegelei<br><span class="text-slate-400 text-[8px]">L+H->Z</span></span>
+                    </button>
+                    <button id="btn-build-mill" onclick="window.Sfx.click(); window.Game.setBuildMode('mill')" data-cat="ind" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer border-yellow-200/30" disabled>
+                        <span class="text-xl">🎡</span><span class="text-[9px] font-bold uppercase leading-tight text-yellow-100 text-center">Mühle<br><span class="text-slate-400 text-[8px]">W->M</span></span>
+                    </button>
+                    <button id="btn-build-bakery" onclick="window.Sfx.click(); window.Game.setBuildMode('bakery')" data-cat="ind" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer border-yellow-500/30" disabled>
+                        <span class="text-xl">🍞</span><span class="text-[9px] font-bold uppercase leading-tight text-yellow-300 text-center">Bäcker<br><span class="text-slate-400 text-[8px]">M+H->E</span></span>
+                    </button>
+                    <div class="menu-separator w-px h-14 bg-slate-600/50 mx-0.5 self-center"></div>
+                    
+                    <!-- Advanced -->
+                    <button id="btn-build-smelter" onclick="window.Sfx.click(); window.Game.setBuildMode('smelter')" data-cat="adv" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer border-slate-300/30" disabled>
+                        <span class="text-xl">🔥</span><span class="text-[9px] font-bold uppercase leading-tight text-slate-300 text-center">Schmelze<br><span class="text-slate-400 text-[8px]">Erz->Ei (II)</span></span>
+                    </button>
+                    <button id="btn-build-forester" onclick="window.Sfx.click(); window.Game.setBuildMode('forester')" data-cat="adv" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer" disabled>
+                        <span class="text-xl">🌲</span><span class="text-[9px] font-bold uppercase leading-tight text-center">Förster<br><span class="text-slate-400 text-[8px]">Bäume (II)</span></span>
+                    </button>
+                    <button id="btn-build-market" onclick="window.Sfx.click(); window.Game.setBuildMode('market')" data-cat="adv" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer" disabled>
+                        <span class="text-xl">⚖️</span><span class="text-[9px] font-bold uppercase leading-tight text-yellow-500 text-center">Markt<br><span class="text-slate-400 text-[8px]">Gold (II)</span></span>
+                    </button>
+                    <button id="btn-build-tavern" onclick="window.Sfx.click(); window.Game.setBuildMode('tavern')" data-cat="adv" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer" disabled>
+                        <span class="text-xl">🍺</span><span class="text-[9px] font-bold uppercase leading-tight text-yellow-300 text-center">Taverne<br><span class="text-slate-400 text-[8px]">Zuf. (II)</span></span>
+                    </button>
+                    <button id="btn-build-toolmaker" onclick="window.Sfx.click(); window.Game.setBuildMode('toolmaker')" data-cat="adv" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer border-green-500/30" disabled>
+                        <span class="text-xl">🛠️</span><span class="text-[9px] font-bold uppercase leading-tight text-green-300 text-center">Werkzeug<br><span class="text-slate-400 text-[8px]">Buff (III)</span></span>
+                    </button>
+                    <button id="btn-build-weaponsmith" onclick="window.Sfx.click(); window.Game.setBuildMode('weaponsmith')" data-cat="adv" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer border-red-500/30" disabled>
+                        <span class="text-xl">⚔️</span><span class="text-[9px] font-bold uppercase leading-tight text-red-300 text-center">Waffen<br><span class="text-slate-400 text-[8px]">Militär (III)</span></span>
+                    </button>
+                    <button id="btn-build-barracks" onclick="window.Sfx.click(); window.Game.setBuildMode('barracks')" data-cat="adv" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer" disabled>
+                        <span class="text-xl">🛡️</span><span class="text-[9px] font-bold uppercase leading-tight text-red-400 text-center">Kaserne<br><span class="text-slate-400 text-[8px]">Schutz (III)</span></span>
+                    </button>
+                    <button id="btn-build-archery" onclick="window.Sfx.click(); window.Game.setBuildMode('archery')" data-cat="adv" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer" disabled>
+                        <span class="text-xl">🏹</span><span class="text-[9px] font-bold uppercase leading-tight text-center">Schieß-<br><span class="text-slate-400 text-[8px]">stand</span></span>
+                    </button>
+                    <button id="btn-build-wall" onclick="window.Sfx.click(); window.Game.setBuildMode('wall')" data-cat="adv" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer" disabled>
+                        <span class="text-xl">🧱</span><span class="text-[9px] font-bold uppercase leading-tight text-slate-300 text-center">Mauer<br><span class="text-slate-400 text-[8px]">Block (II)</span></span>
+                    </button>
+                    <button id="btn-build-tower" onclick="window.Sfx.click(); window.Game.setBuildMode('tower')" data-cat="adv" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer border-cyan-500/30" disabled>
+                        <span class="text-xl">🗼</span><span class="text-[9px] font-bold uppercase leading-tight text-cyan-300 text-center">Turm<br><span class="text-slate-400 text-[8px]">Feuert (IV)</span></span>
+                    </button>
+                    <button id="btn-build-monument" onclick="window.Sfx.click(); window.Game.setBuildMode('monument')" data-cat="adv" class="btn-build w-[72px] h-auto rounded-lg flex flex-col items-center justify-center p-1 gap-1 cursor-pointer" disabled>
+                        <span class="text-xl">🗽</span><span class="text-[9px] font-bold uppercase leading-tight neon-text-purple text-center">Wunder<br><span class="text-slate-400 text-[8px]">Max (IV)</span></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Inspector Left -->
+        <div id="inspector" class="absolute left-[280px] top-4 w-60 glass-panel p-4 rounded-xl pointer-events-auto hidden z-20">
+            <div class="flex justify-between items-center mb-3 border-b border-purple-500/50 pb-2">
+                <h3 id="insp-title" class="text-sm font-black uppercase text-cyan-400 tracking-wider">Gebäude</h3>
+                <button onclick="window.Sfx.click(); window.Game.closeInspector()" class="text-slate-400 hover:text-white text-lg cursor-pointer">✕</button>
+            </div>
+            <div id="insp-desc" class="text-xs text-slate-300 mb-2 font-medium">Beschreibung...</div>
+            <div id="insp-localinv" class="hidden mb-2 bg-black/40 rounded-lg p-2 border border-cyan-500/20">
+                <div class="text-[9px] uppercase text-cyan-400 font-bold mb-1 tracking-widest">📦 Lokales Lager</div>
+                <div id="insp-localinv-content" class="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] font-bold text-slate-300"></div>
+            </div>
+            <div id="insp-status" class="text-[10px] text-orange-400 font-bold mb-3 uppercase tracking-widest hidden">Bauphase: 0%</div>
+            
+            <button id="btn-upgrade" onclick="window.Sfx.click(); window.Game.upgradeTownhall()" class="w-full mb-3 py-2 bg-purple-900/40 border border-purple-500/50 rounded-lg text-xs font-bold uppercase text-purple-400 hover:bg-purple-500/20 transition-colors cursor-pointer hidden">
+                Epoche Upgraden
+            </button>
+
+            <div id="worker-controls" class="bg-black/50 p-3 rounded-lg border border-purple-500/30">
+                <div id="ui-insp-workers" class="text-[10px] uppercase text-purple-400 font-bold mb-2 text-center tracking-widest">Zugewiesene Arbeiter</div>
+                <div class="flex justify-between items-center px-2">
+                    <button onclick="window.Sfx.click(); window.Game.assignWorker(-1)" class="w-8 h-8 rounded-lg text-lg font-black bg-slate-700 hover:bg-slate-600 text-white cursor-pointer transition-colors">-</button>
+                    <div id="insp-workers" class="text-2xl font-bold text-white">0/3</div>
+                    <button onclick="window.Sfx.click(); window.Game.assignWorker(1)" class="w-8 h-8 rounded-lg text-lg font-black bg-purple-600 hover:bg-purple-500 text-white cursor-pointer transition-colors">+</button>
+                </div>
+                <div id="insp-warn" class="text-[10px] text-red-400 text-center mt-2 hidden uppercase font-bold alert-pulse">Keine freien Siedler!</div>
+            </div>
+            <div id="unit-type-controls" class="hidden mt-3 bg-black/50 p-3 rounded-lg border border-red-500/30">
+                <div class="text-[10px] uppercase text-red-400 font-bold mb-2 text-center tracking-widest">Einheitentyp wählen</div>
+                <div class="flex gap-2 mb-1">
+                    <button onclick="window.Game.setUnitType('soldier')" id="btn-unit-soldier" class="flex-1 py-1 rounded text-[10px] font-bold bg-red-900/60 border border-red-500/60 text-red-300 cursor-pointer">⚔️ Soldat</button>
+                    <button onclick="window.Game.setUnitType('knight')" id="btn-unit-knight" class="flex-1 py-1 rounded text-[10px] font-bold bg-slate-700/50 border border-slate-500/50 text-slate-400 cursor-pointer hover:bg-slate-600/50">🛡️ Ritter</button>
+                </div>
+                <div id="unit-cost-hint" class="text-[9px] text-slate-500 text-center">10 Waffen</div>
+            </div>
+            <button id="btn-demolish" onclick="window.Sfx.click(); window.Game.demolishSelected()" class="w-full mt-3 py-2 bg-red-900/40 border border-red-500/50 rounded-lg text-xs font-bold uppercase text-red-400 hover:bg-red-500/20 transition-colors cursor-pointer">
+                Abreißen (50% Zurück)
+            </button>
+        </div>
+
+        <!-- Stats Panel -->
+        <div id="stats-panel" class="absolute top-16 right-4 w-[420px] glass-panel p-4 rounded-xl pointer-events-auto hidden z-30">
+            <div class="flex justify-between items-center mb-3 border-b border-purple-500/50 pb-2">
+                <h3 class="text-sm font-black uppercase text-cyan-400 tracking-wider">📊 Statistiken</h3>
+                <button onclick="window.Game.toggleStats()" class="text-slate-400 hover:text-white text-lg cursor-pointer">✕</button>
+            </div>
+            <!-- Kennzahlen -->
+            <div class="grid grid-cols-4 gap-2 mb-4">
+                <div class="bg-black/40 rounded-lg p-2 text-center border border-purple-500/20">
+                    <div class="text-[9px] uppercase text-slate-400 tracking-widest">Epoche</div>
+                    <div id="stat-epoch" class="text-lg font-black neon-text-purple">I</div>
+                </div>
+                <div class="bg-black/40 rounded-lg p-2 text-center border border-cyan-500/20">
+                    <div class="text-[9px] uppercase text-slate-400 tracking-widest">Bewohner</div>
+                    <div id="stat-pop" class="text-lg font-black neon-text-cyan">0</div>
+                </div>
+                <div class="bg-black/40 rounded-lg p-2 text-center border border-yellow-500/20">
+                    <div class="text-[9px] uppercase text-slate-400 tracking-widest">Gebäude</div>
+                    <div id="stat-buildings" class="text-lg font-black text-yellow-400">0</div>
+                </div>
+                <div class="bg-black/40 rounded-lg p-2 text-center border border-red-500/20">
+                    <div class="text-[9px] uppercase text-slate-400 tracking-widest">Wellen</div>
+                    <div id="stat-waves" class="text-lg font-black text-red-400">0</div>
+                </div>
+            </div>
+            <!-- Graph Tabs -->
+            <div class="flex gap-2 mb-2 text-[10px] font-bold uppercase">
+                <button onclick="window.Game.setStatTab('pop')" id="stab-pop" class="px-3 py-1 rounded-full bg-cyan-500/20 text-cyan-400 cursor-pointer">👥 Pop</button>
+                <button onclick="window.Game.setStatTab('gold')" id="stab-gold" class="px-3 py-1 rounded-full bg-slate-700/50 text-slate-400 cursor-pointer">💰 Gold</button>
+                <button onclick="window.Game.setStatTab('food')" id="stab-food" class="px-3 py-1 rounded-full bg-slate-700/50 text-slate-400 cursor-pointer">🍖 Nahrung</button>
+                <button onclick="window.Game.setStatTab('happiness')" id="stab-happiness" class="px-3 py-1 rounded-full bg-slate-700/50 text-slate-400 cursor-pointer">❤️ Zufrieden</button>
+            </div>
+            <!-- Canvas Graph -->
+            <div class="bg-black/50 rounded-lg p-2 border border-slate-700/50">
+                <canvas id="stats-canvas" width="380" height="120" class="w-full"></canvas>
+            </div>
+            <!-- Produktions-Übersicht -->
+            <div class="mt-3 grid grid-cols-2 gap-2 text-[10px]">
+                <div class="bg-black/40 rounded p-2 border border-slate-700/30">
+                    <div class="text-slate-400 uppercase font-bold mb-1 tracking-widest">Top Produzenten</div>
+                    <div id="stat-producers" class="text-slate-300 font-bold"></div>
+                </div>
+                <div class="bg-black/40 rounded p-2 border border-slate-700/30">
+                    <div class="text-slate-400 uppercase font-bold mb-1 tracking-widest">Spielzeit & Info</div>
+                    <div id="stat-time" class="text-slate-300 font-bold"></div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <canvas id="renderCanvas"></canvas>
+
+
+    <!-- Game Scripts — load order matters! -->
+    <script src="sfx.js"></script>
+    <script src="noise.js"></script>
+    <script src="buildings.js"></script>
+    <script src="entities.js"></script>
+    <script src="game.js"></script>
+
+    <!-- Cloud/Firebase — loaded as ES module last -->
+    <script type="module">
+        import { initFirebase, db, auth, currentUser, appId, doc, setDoc, getDoc } from './cloud.js';
+
+        // Make Firebase vars globally available for game.js functions
+        window._getFirebaseVars = () => ({ db, auth, currentUser, appId, doc, setDoc, getDoc });
+
+        // Init Firebase on load
+        initFirebase();
+    </script>
+
+</body>
