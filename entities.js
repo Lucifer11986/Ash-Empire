@@ -23,6 +23,28 @@
                     });
                 }
 
+                // Feststeck-Erkennung: Position alle 120 Ticks vergleichen
+                this._stuckTimer = (this._stuckTimer || 0) + 1;
+                if(this._stuckTimer % 120 === 0) {
+                    const cx = this.mesh.position.x, cz = this.mesh.position.z;
+                    if(this._lastX !== undefined && Math.hypot(cx - this._lastX, cz - this._lastZ) < 0.5) {
+                        // Feststeckend — direkt zum Zentrum schieben
+                        const tc = GameState.centerTile;
+                        const d = Math.hypot(tc.x - cx, tc.z - cz);
+                        if(d > 3) {
+                            this.mesh.position.x += ((tc.x - cx)/d) * 5;
+                            this.mesh.position.z += ((tc.z - cz)/d) * 5;
+                        }
+                    }
+                    this._lastX = this.mesh.position.x; this._lastZ = this.mesh.position.z;
+                }
+
+                // Sicherheit: Feind unter Wasser nach oben setzen
+                const curY = window.Game.getHeightAt(this.mesh.position.x, this.mesh.position.z);
+                if(this.mesh.position.y < window.Game.waterLevel - 1) {
+                    this.mesh.position.y = Math.max(curY, window.Game.waterLevel + 0.5);
+                }
+
                 if(this.type === 'ork') { this.orkBehavior(); return; }
                 if(this.steals)        { this.nomadBehavior(); return; }
                 this.banditBehavior();
@@ -160,11 +182,39 @@
                 let nextX = this.mesh.position.x + dirX * this.speed;
                 let nextZ = this.mesh.position.z + dirZ * this.speed;
                 let nextY = window.Game.getHeightAt(nextX, nextZ);
+
                 if(nextY <= window.Game.waterLevel + 0.3 && !window.Game.hasInfra(Math.round(nextX), Math.round(nextZ), 'bridge')) {
-                    nextX = this.mesh.position.x + (-dirZ) * this.speed;
-                    nextZ = this.mesh.position.z + dirX * this.speed;
-                    nextY = window.Game.getHeightAt(nextX, nextZ);
-                    if(nextY <= window.Game.waterLevel + 0.3) return;
+                    // Wasser blockiert — mehrere Ausweichrichtungen versuchen
+                    const tries = [
+                        [-dirZ,  dirX],   // links umgehen
+                        [ dirZ, -dirX],   // rechts umgehen
+                        [-dirX, -dirZ],   // zurück
+                        [-dirZ * 0.7 + dirX * 0.7,  dirX * 0.7 + dirZ * 0.7],  // schräg links
+                        [ dirZ * 0.7 + dirX * 0.7, -dirX * 0.7 + dirZ * 0.7],  // schräg rechts
+                    ];
+                    let moved = false;
+                    for(const [ax, az] of tries) {
+                        const tx = this.mesh.position.x + ax * this.speed;
+                        const tz = this.mesh.position.z + az * this.speed;
+                        const ty = window.Game.getHeightAt(tx, tz);
+                        if(ty > window.Game.waterLevel + 0.3) {
+                            nextX = tx; nextZ = tz; nextY = ty;
+                            moved = true;
+                            break;
+                        }
+                    }
+                    // Wenn gar kein Weg: kleinen Schritt direkt zum Zentrum (Notfall-Teleport)
+                    if(!moved && GameState.centerTile) {
+                        const cx = GameState.centerTile.x, cz = GameState.centerTile.z;
+                        const d = Math.hypot(cx - this.mesh.position.x, cz - this.mesh.position.z);
+                        if(d > 0) {
+                            nextX = this.mesh.position.x + ((cx - this.mesh.position.x)/d) * this.speed * 2;
+                            nextZ = this.mesh.position.z + ((cz - this.mesh.position.z)/d) * this.speed * 2;
+                            nextY = window.Game.getHeightAt(nextX, nextZ);
+                            // Wenn immer noch Wasser: Y erzwingen damit der Feind wenigstens sichtbar bleibt
+                            if(nextY <= window.Game.waterLevel + 0.3) nextY = window.Game.waterLevel + 0.5;
+                        }
+                    }
                 }
                 this.mesh.position.x = nextX; this.mesh.position.z = nextZ; this.mesh.position.y = nextY;
                 this.mesh.rotation.y = Math.atan2(dirX, dirZ);
@@ -178,7 +228,12 @@
                 let currentY = window.Game.getHeightAt(this.mesh.position.x, this.mesh.position.z);
                 this.mesh.position.y = currentY;
 
-                let nearCit = GameState.population.find(c => Math.hypot(c.mesh.position.x - this.mesh.position.x, c.mesh.position.z - this.mesh.position.z) < 15);
+                // PERF: Flee-Check nur alle 10 Frames statt jeden Frame — O(animals×pop)/10
+                this._fleeTimer = (this._fleeTimer || 0) + 1;
+                if(this._fleeTimer % 10 === 0) {
+                    this._nearCit = GameState.population.find(c => Math.hypot(c.mesh.position.x - this.mesh.position.x, c.mesh.position.z - this.mesh.position.z) < 15);
+                }
+                const nearCit = this._nearCit;
                 if(nearCit) {
                     this.state = 'FLEE'; this.speed = 0.08;
                     let dir = this.mesh.position.subtract(nearCit.mesh.position); dir.y=0; dir.normalize();
@@ -259,7 +314,10 @@
                 if (window.Game.tickCounter % 30 === 0) {
                     this.spd = this.baseSpd * ((GameState.happiness / 100) * 0.5 + 0.5); 
                     let buff = false;
-                    if(GameState.buildings.some(b => b.type === 'monument' && !b.isConstructing)) { this.spd *= 1.2; buff = true; }
+                    // PERF: Gecachte Buff-Flags statt buildings.some() für jeden Bürger
+                    const _buffs = window.Game.getBuffFlags() || { monument: false, school: false };
+                    if(_buffs.monument) { this.spd *= 1.2; buff = true; }
+                    if(_buffs.school)   { this.spd *= 1.1; buff = true; }
                     if(GameState.resources.tools > 0) { this.spd *= 1.3; buff = true; }
                     if(GameState.research.betterTools) { this.spd *= 1.2; buff = true; }
                     
@@ -269,7 +327,7 @@
                     if(buff && this.bodyMesh && this.bodyMesh.material) this.bodyMesh.material.emissiveColor = new BABYLON.Color3(0.1, 0.3, 0.1); else if (this.bodyMesh && this.bodyMesh.material) this.bodyMesh.material.emissiveColor = new BABYLON.Color3(0,0,0);
                 }
 
-                if(this.job === 'INNKEEPER' || this.job === 'MERCHANT') { this.mesh.position.y = y; this.mesh.rotation.y += 0.05; return; }
+                if(this.job === 'INNKEEPER' || this.job === 'MERCHANT' || this.job === 'DOCKWORKER' || this.job === 'PRIEST' || this.job === 'HEALER' || this.job === 'TEACHER' || this.job === 'PERFORMER' || this.job === 'OFFICIAL') { this.mesh.position.y = y; this.mesh.rotation.y += 0.03; return; }
                 if(this.job === 'FISHER') { this.mesh.position.y = y; this.fisherLogic(); return; }
 
                 if(this.state === 'TRAINING') {
@@ -291,7 +349,8 @@
                     this.state = 'IDLE';
                 }
                 const foodJobs = ['FARMER','GATHERER','HUNTER','FISHER','ORCHARDIST','VEGFARMER','COWHERD','PIGFARMER','COOK','BAKER','MILLER'];
-                if(GameState.isStarving && !foodJobs.includes(this.job) && !['IDLE','GO_SLEEP','MOVING_SLEEP','SLEEPING'].includes(this.state)) this.state = 'IDLE';
+                const dockJobs = ['DOCKWORKER','PRIEST','HEALER','TEACHER','PERFORMER','OFFICIAL'];
+                if(GameState.isStarving && this.job !== 'UNEMPLOYED' && !foodJobs.includes(this.job) && !['IDLE','GO_SLEEP','MOVING_SLEEP','SLEEPING'].includes(this.state)) this.state = 'IDLE';
 
                 switch(this.state) {
                     case 'GO_SLEEP':
@@ -320,7 +379,7 @@
                             }
                             this.findUnemployedTask();
                         }
-                        else if((!GameState.isStarving || foodJobs.includes(this.job)) && this.workplace) {
+                        else if((!GameState.isStarving || foodJobs.includes(this.job) || this.job === 'UNEMPLOYED') && this.workplace) {
                             if (['SAWMILL', 'SMELTER', 'BAKER', 'BRICKMAKER', 'MILLER', 'TOOLMAKER', 'WEAPONSMITH', 'ORCHARDIST', 'VEGFARMER', 'COWHERD', 'SHEPHERD', 'PIGFARMER', 'COOK', 'CHEESEMAKER'].includes(this.job)) this.state = 'PROCESS';
                             else this.findRes();
                         }
@@ -328,7 +387,7 @@
                         break;
 
                     case 'MOVING_IDLE': if(this.job !== 'UNEMPLOYED') this.state = 'IDLE'; else if(this.moveTo(this.target, y)) this.state = 'IDLE'; break;
-                    case 'MOVING_WORK': if(this.targetProp && this.targetProp.health <= 0 && !['FARMER','FORESTER','CLAYMINER'].includes(this.job)) { this.state = 'IDLE'; } else if(this.moveTo(this.target, y)) { this.state = 'WORK'; this.timer = 250; } break;
+                    case 'MOVING_WORK': if(this.targetProp && this.targetProp.health <= 0 && !['FARMER','FORESTER','CLAYMINER'].includes(this.job)) { this.state = 'IDLE'; } else if(this.moveTo(this.target, y)) { this.state = 'WORK'; this.timer = 180; } break;
                     case 'WORK':
                         this.timer--; this.mesh.rotation.z = Math.sin(this.timer * 0.3) * 0.2; 
                         if(this.timer % 50 === 0) { if(this.job === 'WOODCUTTER') window.Sfx.chop(); else if(['MINER','CLAYMINER'].includes(this.job)) window.Sfx.mine(); }
@@ -381,19 +440,19 @@
                                 const droughtMalus = GameState.isDrought ? 0.3 : 1.0;
                                 const farmMult = Math.round(farmBonus * droughtMalus * 8);
                                 if(this.job === 'SAWMILL') {
-                                    if(GameState.resources.wood >= 10) { GameState.resources.wood -= 10; this.workplace.localInv.planks += 10; window.Game.createFloatingText("+10 Bretter", this.workplace.mesh, "#fdba74"); window.Game.uiNeedsUpdate = true; processed = true; }
+                                    if(GameState.resources.wood >= 8) { GameState.resources.wood -= 8; this.workplace.localInv.planks += 15; window.Game.createFloatingText("+15 Bretter", this.workplace.mesh, "#fdba74"); window.Game.uiNeedsUpdate = true; processed = true; }
                                 } else if (this.job === 'SMELTER') {
-                                    if(GameState.resources.iron >= 5 && GameState.resources.coal >= 5) { GameState.resources.iron -= 5; GameState.resources.coal -= 5; this.workplace.localInv.iron += 5; window.Game.createFloatingText("+5 Eisen", this.workplace.mesh, "#94a3b8"); window.Game.uiNeedsUpdate = true; processed = true; }
+                                    if(GameState.resources.iron >= 4 && GameState.resources.coal >= 4) { GameState.resources.iron -= 4; GameState.resources.coal -= 4; this.workplace.localInv.iron += 6; window.Game.createFloatingText("+6 Eisen", this.workplace.mesh, "#94a3b8"); window.Game.uiNeedsUpdate = true; processed = true; }
                                 } else if (this.job === 'BRICKMAKER') {
-                                    if(GameState.resources.clay >= 10 && GameState.resources.wood >= 5) { GameState.resources.clay -= 10; GameState.resources.wood -= 5; this.workplace.localInv.bricks += 10; window.Game.createFloatingText("+10 Ziegel", this.workplace.mesh, "#b91c1c"); window.Game.uiNeedsUpdate = true; processed = true; }
+                                    if(GameState.resources.clay >= 8 && GameState.resources.wood >= 3) { GameState.resources.clay -= 8; GameState.resources.wood -= 3; this.workplace.localInv.bricks += 12; window.Game.createFloatingText("+12 Ziegel", this.workplace.mesh, "#b91c1c"); window.Game.uiNeedsUpdate = true; processed = true; }
                                 } else if (this.job === 'MILLER') {
-                                    if(GameState.resources.wheat >= 10) { GameState.resources.wheat -= 10; this.workplace.localInv.flour += 10; window.Game.createFloatingText("+10 Mehl", this.workplace.mesh, "#fef08a"); window.Game.uiNeedsUpdate = true; processed = true; }
+                                    if(GameState.resources.wheat >= 8) { GameState.resources.wheat -= 8; this.workplace.localInv.flour += 12; window.Game.createFloatingText("+12 Mehl", this.workplace.mesh, "#fef08a"); window.Game.uiNeedsUpdate = true; processed = true; }
                                 } else if (this.job === 'BAKER') {
-                                    if(GameState.resources.flour >= 10 && GameState.resources.wood >= 5) { GameState.resources.flour -= 10; GameState.resources.wood -= 5; GameState.resources.food += 30; window.Game.createFloatingText("+30 Essen", this.workplace.mesh, "#fcd34d"); window.Game.uiNeedsUpdate = true; processed = true; }
+                                    if(GameState.resources.flour >= 8 && GameState.resources.wood >= 2) { GameState.resources.flour -= 8; GameState.resources.wood -= 2; GameState.resources.food += 40; window.Game.createFloatingText("+40 Essen", this.workplace.mesh, "#fcd34d"); window.Game.uiNeedsUpdate = true; processed = true; }
                                 } else if (this.job === 'TOOLMAKER') {
-                                    if(GameState.resources.iron >= 5 && GameState.resources.coal >= 5) { GameState.resources.iron -= 5; GameState.resources.coal -= 5; this.workplace.localInv.tools += 5; window.Game.createFloatingText("+5 Tools", this.workplace.mesh, "#4ade80"); window.Game.uiNeedsUpdate = true; processed = true; }
+                                    if(GameState.resources.iron >= 4 && GameState.resources.coal >= 4) { GameState.resources.iron -= 4; GameState.resources.coal -= 4; this.workplace.localInv.tools += 8; window.Game.createFloatingText("+8 Werkzeuge", this.workplace.mesh, "#4ade80"); window.Game.uiNeedsUpdate = true; processed = true; }
                                 } else if (this.job === 'WEAPONSMITH') {
-                                    if(GameState.resources.iron >= 10 && GameState.resources.wood >= 10) { GameState.resources.iron -= 10; GameState.resources.wood -= 10; this.workplace.localInv.weapons += 5; window.Game.createFloatingText("+5 Waffen", this.workplace.mesh, "#fca5a5"); window.Game.uiNeedsUpdate = true; processed = true; }
+                                    if(GameState.resources.iron >= 6 && GameState.resources.wood >= 6) { GameState.resources.iron -= 6; GameState.resources.wood -= 6; this.workplace.localInv.weapons += 8; window.Game.createFloatingText("+8 Waffen", this.workplace.mesh, "#fca5a5"); window.Game.uiNeedsUpdate = true; processed = true; }
                                 } else if (this.job === 'COOK') {
                                     if(GameState.resources.vegetables >= 10) { GameState.resources.vegetables -= 10; GameState.resources.food += Math.round(25 * farmBonus); window.Game.createFloatingText(`+${Math.round(25*farmBonus)} Essen`, this.workplace.mesh, "#fb923c"); window.Game.uiNeedsUpdate = true; processed = true; }
                                 } else if (this.job === 'CHEESEMAKER') {
@@ -421,7 +480,12 @@
                                 } else {
                                     processed = true;
                                 }
-                                this.timer = processed ? (GameState.research.smelting && ['SMELTER','BRICKMAKER'].includes(this.job) ? 100 : 200) : 30;
+                                this.timer = processed 
+                                    ? (GameState.research.smelting && ['SMELTER','BRICKMAKER'].includes(this.job) ? 80 
+                                       : ['WEAPONSMITH','TOOLMAKER'].includes(this.job) ? 160
+                                       : ['SAWMILL','MILLER','BAKER'].includes(this.job) ? 120
+                                       : 140)
+                                    : 25;
                             }
                         } break;
 

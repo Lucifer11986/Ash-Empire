@@ -31,6 +31,17 @@
             chop() { this.noise(0.1, 0.05, 800); },
             mine() { this.noise(0.1, 0.05, 300); this.play(200, 'triangle', 0.1, 0.05); },
             thunder() { this.noise(3.5, 0.8, 300); },
+            // Neue Sounds
+            demolish() { this.noise(0.3, 0.4, 200); this.play(80, 'sawtooth', 0.3, 0.15); },
+            research() { this.play(600, 'sine', 0.15, 0.08); setTimeout(() => this.play(900, 'sine', 0.2, 0.15), 100); setTimeout(() => this.play(1200, 'sine', 0.15, 0.2), 200); },
+            epoch() { [400,500,600,800,1000].forEach((f,i) => setTimeout(() => this.play(f, 'sine', 0.4, 0.12), i*80)); },
+            workerAssign() { this.play(440, 'triangle', 0.12, 0.06); },
+            workerRemove() { this.play(330, 'triangle', 0.12, 0.06); },
+            enemyDie() { this.noise(0.15, 0.2, 150); this.play(120, 'sawtooth', 0.15, 0.08); },
+            citizenBorn() { this.play(700, 'sine', 0.2, 0.07); setTimeout(() => this.play(880, 'sine', 0.15, 0.1), 80); },
+            hunger() { this.play(200, 'sawtooth', 0.2, 0.4); },
+            waveStart() { this.noise(0.5, 0.5, 200); this.play(80, 'square', 0.5, 0.4); setTimeout(() => this.play(100, 'square', 0.4, 0.3), 200); },
+            collect() { this.play(660, 'sine', 0.08, 0.04); },
             toggleRain(active) {
                 if(!this.ctx) return;
                 if(active && !this.rainNode && this.enabled) {
